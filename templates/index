@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Mobile Controller (USB / Wi-Fi / Bluetooth)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+        body { background-color: #0b0f19; color: #f1f5f9; display: flex; height: 100vh; overflow: hidden; }
+        
+        .stream-container { flex: 1; display: flex; justify-content: center; align-items: center; background: #020617; padding: 16px; }
+        #phone-screen { max-height: 94vh; max-width: 100%; border-radius: 12px; border: 2px solid #0284c7; cursor: pointer; object-fit: contain; }
+        
+        .controls-sidebar { width: 340px; background: #1e293b; padding: 20px; display: flex; flex-direction: column; gap: 14px; border-left: 1px solid #334155; overflow-y: auto; }
+        .title { font-size: 12px; font-weight: bold; color: #38bdf8; text-transform: uppercase; margin-bottom: 4px; }
+        .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .control-btn { padding: 9px; font-size: 12px; font-weight: bold; background: #334155; color: #fff; border: 1px solid #475569; border-radius: 6px; cursor: pointer; }
+        .control-btn:hover { background: #475569; }
+        .text-field { width: 100%; padding: 9px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; outline: none; margin-bottom: 6px; font-size: 13px; }
+        .submit-btn { width: 100%; padding: 9px; background: #0284c7; border: none; border-radius: 6px; color: white; font-weight: bold; cursor: pointer; font-size: 13px; }
+        .mode-btn { padding: 8px; font-size: 11px; font-weight: bold; background: #1e293b; border: 1px solid #0284c7; color: #38bdf8; border-radius: 6px; cursor: pointer; }
+        .mode-btn:hover { background: #0284c7; color: white; }
+    </style>
+</head>
+<body>
+    <div class="stream-container">
+        <img id="phone-screen" src="/mobile-feed" alt="Screen Feed Connecting..." />
+    </div>
+
+    <div class="controls-sidebar">
+        <div>
+            <div class="title">Connection Modes</div>
+            <div class="btn-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 8px;">
+                <button class="mode-btn" onclick="setUsbMode()">🔌 USB Mode</button>
+                <button class="mode-btn" onclick="document.getElementById('wifiBlock').style.display='block'">📶 Wi-Fi Mode</button>
+            </div>
+            
+            <div id="wifiBlock" style="display: none;">
+                <input type="text" id="wifiIp" class="text-field" placeholder="Phone IP (e.g. 192.168.1.15)" />
+                <button class="submit-btn" onclick="connectWifi()">Pair over Wi-Fi</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="title">Navigation</div>
+            <div class="btn-grid">
+                <button class="control-btn" onclick="sendKey(4)">◀ Back</button>
+                <button class="control-btn" onclick="sendKey(3)">● Home</button>
+                <button class="control-btn" onclick="sendKey(187)">■ Apps</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="title">Hardware Keys</div>
+            <div class="btn-grid">
+                <button class="control-btn" onclick="sendKey(24)">Vol +</button>
+                <button class="control-btn" onclick="sendKey(25)">Vol -</button>
+                <button class="control-btn" onclick="sendKey(26)">Power</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="title">Type Text to Phone</div>
+            <input type="text" id="phoneInput" class="text-field" placeholder="Type text to send..." onkeydown="if(event.key==='Enter') sendText()" />
+            <button class="submit-btn" onclick="sendText()">Send to Device</button>
+        </div>
+    </div>
+
+    <script>
+        const screenImg = document.getElementById('phone-screen');
+        let startX = 0, startY = 0, isDragging = false;
+
+        function setUsbMode() {
+            fetch('/api/connect/usb', { method: 'POST' })
+                .then(r => r.json()).then(data => alert(data.message));
+        }
+
+        function connectWifi() {
+            const ip = document.getElementById('wifiIp').value;
+            if (!ip) return alert('Enter your phone IP address');
+            fetch('/api/connect/wifi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip })
+            }).then(r => r.json()).then(data => alert(data.message));
+        }
+
+        function getCoords(e) {
+            const rect = screenImg.getBoundingClientRect();
+            return {
+                x: Math.round(((e.clientX - rect.left) / rect.width) * 1080),
+                y: Math.round(((e.clientY - rect.top) / rect.height) * 2400)
+            };
+        }
+
+        screenImg.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const c = getCoords(e);
+            startX = c.x; startY = c.y;
+        });
+
+        screenImg.addEventListener('mouseup', (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            const c = getCoords(e);
+            if (Math.hypot(c.x - startX, c.y - startY) < 20) {
+                fetch('/api/tap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x: c.x, y: c.y }) });
+            } else {
+                fetch('/api/swipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x1: startX, y1: startY, x2: c.x, y2: c.y, duration: 250 }) });
+            }
+        });
+
+        function sendKey(keycode) {
+            fetch('/api/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keycode }) });
+        }
+
+        function sendText() {
+            const input = document.getElementById('phoneInput');
+            if (!input.value) return;
+            fetch('/api/text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: input.value }) });
+            input.value = '';
+        }
+    </script>
+</body>
+</html>
