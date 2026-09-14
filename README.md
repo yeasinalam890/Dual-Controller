@@ -1,1 +1,1 @@
-# Dual-Controller
+# DualController
